@@ -1,0 +1,49 @@
+body {
+    font-family: Arial, sans-serif;
+  }
+  
+*{
+  font-size: 30px;
+}
+  #fontSizeSlider{
+    font-size: 30px;
+  }
+  .container {
+    min-width: 100% !important;
+    margin: 0 auto;
+    
+    border: 1px solid #ccc;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+  
+
+  textarea {
+    width: 100%;
+    min-height: 80vh;
+    margin-top: 10px;
+  }
+
+  label{
+    font-size: 30px;
+  }
+
+  input::placeholder {
+    /* font-size: 30px; */
+    color: blueviolet;
+    padding: 30px;
+  }
+
+  .funtions{
+    display: flex;
+    flex-direction: column;
+  }
+
+  .card-body{
+    display: flex;
+    justify-content: center;
+   
+  }
+  

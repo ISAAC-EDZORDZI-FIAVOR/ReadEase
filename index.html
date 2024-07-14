@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>READ_WITH_EASE</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="./bootstrap.css">
+    <style>
+      .high-contrast {
+  background-color: black;
+  color: yellow;
+}
+
+.highlight {
+  background-color: yellow;
+  color: black;
+}
+
+.zoomed {
+  font-size: 24px;
+}
+#uploadForm{
+  display: flex;
+  gap: 10px;
+}
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h3>READ_WITH_EASE</h3>
+        <form id="uploadForm">
+            <input type="file" id="fileInput" class="form-control" accept=".pdf,.docx">
+            <button class="btn btn-primary" type="submit">Upload</button>
+        </form>
+        <div class="controls">
+            <select id="languageSelect">
+                <option value="en-US">English</option>
+                <option value="es-ES">Spanish</option>
+                <option value="fr-FR">French</option>
+            </select>
+            <button class="btn btn-primary" id="speakBtn">Speak</button>
+            <button class="btn btn-primary" id="pauseBtn">Pause</button>
+            <button class="btn btn-primary" id="cancelBtn">Stop</button>
+            <button class="btn btn-primary" class="btn btn-primary" id="highContrastToggle">Enable High Contrast</button>
+            <!-- <button class="btn btn-primary" id="simplifyTextBtn">Simplify Text</button> -->
+        </div>
+        <div class="customization">
+            <label for="fontSizeSlider">Font Size:</label>
+            <input type="range" id="fontSizeSlider" min="12" max="72" value="16">
+            <label for="bgColorSelect">Background Color:</label>
+            <select id="bgColorSelect">
+                <option value="white">White</option>
+                <option value="black">Black</option>
+                <option value="yellow">Yellow</option>
+            </select>
+            <label for="fontColorSelect">Font Color:</label>
+            <select id="fontColorSelect">
+                <option value="black">Black</option>
+                <option value="white">White</option>
+                <option value="yellow">Yellow</option>
+            </select>
+            <label for="speechRateSlider">Speech Rate:</label>
+            <input type="range" id="speechRateSlider" min="0.5" max="2" step="0.1" value="1"><br>
+            <label for="zoomSlider">Zoom:</label>
+            <input type="range" id="zoomSlider" min="100" max="200" step="10" value="100">
+        </div>
+        <div id="contentDisplay" aria-live="polite"></div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip-utils/0.1.0/jszip-utils.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/docxtemplater/3.17.2/docxtemplater.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+  
+</body>
+</html>
+
+
+
+<script>
+const uploadForm = document.getElementById('uploadForm');
+const fileInput = document.getElementById('fileInput');
+const contentDisplay = document.getElementById('contentDisplay');
+const languageSelect = document.getElementById('languageSelect');
+const speakBtn = document.getElementById('speakBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const cancelBtn = document.getElementById('cancelBtn');
+const fontSizeSlider = document.getElementById('fontSizeSlider');
+const bgColorSelect = document.getElementById('bgColorSelect');
+const fontColorSelect = document.getElementById('fontColorSelect');
+const highContrastToggle = document.getElementById('highContrastToggle');
+const speechRateSlider = document.getElementById('speechRateSlider');
+const zoomSlider = document.getElementById('zoomSlider');
+const simplifyTextBtn = document.getElementById('simplifyTextBtn');
+
+let currentUtterance = null;
+let isSpeaking = false;
+let highlightInterval = null;
+let currentWordIndex = -10;
+
+function handleKeyboardNavigation(event) {
+    const key = event.key.toLowerCase();
+
+    if (event.ctrlKey) {
+        switch(key) {
+            case 's': event.preventDefault(); speakText(); break;
+            case 'p': event.preventDefault(); pauseUtterance(); break;
+            case 'c': event.preventDefault(); cancelUtterance(); break;
+            case 'h': event.preventDefault(); toggleHighContrast(); break;
+            case 'z': event.preventDefault(); toggleZoom(); break;
+        }
+    } else {
+        switch(key) {
+            case 'arrowup': increaseFontSize(); break;
+            case 'arrowdown': decreaseFontSize(); break;
+            case 'arrowleft': decreaseFontSize(); break;
+            case 'arrowright': increaseFontSize(); break;
+            case ' ':
+            case 'enter': toggleSpeech(); break;
+        }
+    }
+}
+
+function increaseFontSize() {
+    const currentFontSize = parseInt(contentDisplay.style.fontSize) || 16;
+    const newFontSize = Math.min(currentFontSize + 2, 72);
+    contentDisplay.style.fontSize = `${newFontSize}px`;
+}
+
+function decreaseFontSize() {
+    const currentFontSize = parseInt(contentDisplay.style.fontSize) || 16;
+    const newFontSize = Math.max(currentFontSize - 2, 12);
+    contentDisplay.style.fontSize = `${newFontSize}px`;
+}
+
+function toggleSpeech() {
+    if (isSpeaking) {
+        pauseUtterance();
+    } else {
+        speakText();
+    }
+}
+
+function speakText() {
+    if (isSpeaking) {
+        speechSynthesis.resume();
+        return;
+    }
+
+    isSpeaking = true;
+
+    const speech = new SpeechSynthesisUtterance();
+    speech.text = contentDisplay.textContent;
+    speech.lang = languageSelect.value;
+    speech.rate = speechRateSlider.value;
+
+    speech.onend = function () {
+        console.log('Finished in ' + event.elapsedTime + ' seconds.');
+        isSpeaking = false;
+        currentUtterance = null;
+        clearInterval(highlightInterval);
+    };
+
+    speech.onerror = function (e) {
+        console.error('Error speaking:', e);
+        isSpeaking = false;
+        currentUtterance = null;
+        clearInterval(highlightInterval);
+    };
+
+    speech.onboundary = function(event) {
+        if (event.name === 'word') {
+            currentWordIndex = event.charIndex;
+            highlightText();
+        }
+    };
+
+    currentUtterance = speech;
+    speechSynthesis.speak(speech);
+    highlightInterval = setInterval(highlightText, 0.5 * 1000);
+    console.log('Speaking...');
+}
+
+function pauseUtterance() {
+    if (isSpeaking) {
+        speechSynthesis.pause();
+        isSpeaking = false;
+        clearInterval(highlightInterval);
+    }
+}
+
+function cancelUtterance() {
+    if (currentUtterance) {
+        speechSynthesis.cancel();
+        isSpeaking = false;
+        currentUtterance = null;
+        clearInterval(highlightInterval);
+        contentDisplay.innerHTML = contentDisplay.textContent;
+    }
+}
+
+function highlightText() {
+    const words = contentDisplay.textContent.split(' ');
+    if (currentWordIndex < words.length) {
+        contentDisplay.innerHTML = words.map((word, index) => 
+            index === currentWordIndex ? `<span class="highlight">${word}</span>` : word
+        ).join(' ');
+        currentWordIndex++;
+    } else {
+        clearInterval(highlightInterval);
+        currentWordIndex = -10;
+    }
+}
+
+function toggleHighContrast() {
+    document.body.classList.toggle('high-contrast');
+    highContrastToggle.textContent = document.body.classList.contains('high-contrast') ? 'Disable High Contrast' : 'Enable High Contrast';
+}
+
+function toggleZoom() {
+    contentDisplay.style.zoom = zoomSlider.value + '%';
+}
+
+function simplifyText() {
+    const text = contentDisplay.textContent;
+    const simplifiedText = text
+        .replace(/(\w+ing\b)/g, 'doing $1')
+        .replace(/(\w+ed\b)/g, 'did $1')
+        .replace(/(\w+tion\b)/g, 'action of $1');
+    contentDisplay.textContent = simplifiedText;
+}
+
+function speakUIElement(element) {
+    const speech = new SpeechSynthesisUtterance(element.textContent);
+    speech.rate = 1.5;
+    speechSynthesis.speak(speech);
+}
+
+function handlePdfUpload(arrayBuffer) {
+    pdfjsLib.getDocument({ data: arrayBuffer }).promise.then((pdf) => {
+        let pdfText = '';
+        const numPages = pdf.numPages;
+        const getPageText = (pageNum) => {
+            return pdf.getPage(pageNum).then((page) => {
+                return page.getTextContent().then((textContent) => {
+                    textContent.items.forEach((item) => {
+                        pdfText += item.str + ' ';
+                    });
+                    if (pageNum < numPages) {
+                        return getPageText(pageNum + 1);
+                    } else {
+                        contentDisplay.textContent = pdfText;
+                    }
+                });
+            });
+        };
+        getPageText(1);
+    });
+}
+
+function handleDocxUpload(arrayBuffer) {
+    mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+        .then((result) => {
+            const content = result.value;
+            contentDisplay.textContent = content;
+        })
+        .catch((error) => {
+            console.error('Error extracting content:', error);
+        });
+}
+
+function changeBackgroundColor() {
+    const selectedBgColor = bgColorSelect.value;
+    contentDisplay.style.backgroundColor = selectedBgColor;
+}
+
+function changeFontColor() {
+    const selectedFontColor = fontColorSelect.value;
+    contentDisplay.style.color = selectedFontColor;
+}
+
+// Event Listeners
+uploadForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const file = fileInput.files[0];
+    if (!file) {
+        alert('Please select a file.');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const arrayBuffer = e.target.result;
+        if (file.type === 'application/pdf') {
+            handlePdfUpload(arrayBuffer);
+        } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+            handleDocxUpload(arrayBuffer);
+        } else {
+            alert('Invalid file format. Please upload a .docx or .pdf file.');
+        }
+    };
+    reader.readAsArrayBuffer(file);
+});
+
+[speakBtn, pauseBtn, cancelBtn].forEach(btn => {
+    btn.addEventListener('focus', () => speakUIElement(btn));
+    btn.addEventListener('click', () => {
+        if (btn === speakBtn) speakText();
+        else if (btn === pauseBtn) pauseUtterance();
+        else if (btn === cancelBtn) cancelUtterance();
+        
+    });
+});
+
+[languageSelect, bgColorSelect, fontColorSelect].forEach(select => {
+    select.addEventListener('focus', () => speakUIElement(select));
+});
+
+document.addEventListener('keydown', handleKeyboardNavigation);
+speechSynthesis.addEventListener('pause', () => { isSpeaking = false; });
+speechSynthesis.addEventListener('resume', () => { isSpeaking = true; });
+highContrastToggle.addEventListener('click', toggleHighContrast);
+bgColorSelect.addEventListener('change', changeBackgroundColor);
+fontColorSelect.addEventListener('change', changeFontColor);
+fontSizeSlider.addEventListener('input', () => {
+    contentDisplay.style.fontSize = fontSizeSlider.value + 'px';
+});
+speechRateSlider.addEventListener('input', () => {
+    if (currentUtterance) currentUtterance.rate = speechRateSlider.value;
+});
+zoomSlider.addEventListener('input', toggleZoom);
+
+</script>
